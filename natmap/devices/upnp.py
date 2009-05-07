@@ -26,21 +26,21 @@
 
 from zope.interface import implements
 
+from xml.etree.ElementTree import fromstring
+
 from twisted.internet.protocol import DatagramProtocol
 from twisted.plugin import IPlugin
 from twisted.internet import reactor, defer, error
+from twisted.web import client
 
+from natmap import DiscoverError, MappingGroup, discoverInternalAddress
 from natmap.inatmap import IMappingDevice, IMappingDeviceProvider
 from natmap.soap import Proxy
 from natmap.xmlbuilder import Namespace
-from natmap import DiscoverError, MappingGroup, discoverInternalAddress
-
-from twisted.web import client
 
 import random
 import socket
-
-from xml.etree.ElementTree import fromstring
+import urlparse
 
 
 # UPNP multicast address, port and request string
@@ -55,15 +55,12 @@ MX:3\r
 """ % (_UPNP_MCAST, _UPNP_PORT)
 
 
-import urlparse
-
 def iterrandrange(n, start, stop):
     return (random.randint(start, stop) for i in range(n))
 
 
 class BadResponseError(Exception):
     pass
-
 
 
 class UPnPMappingDevice:
@@ -75,7 +72,7 @@ class UPnPMappingDevice:
     def __init__(self, baseURL, controlURL):
         self.serviceURL = urlparse.urljoin(baseURL, controlURL)
         namespace = Namespace(
-            "rn:schemas-upnp-org:service:WANIPConnection:1", "u"
+            "urn:schemas-upnp-org:service:WANIPConnection:1", "u"
             )
         self.proxy = Proxy(self.serviceURL, namespace)
 
@@ -91,13 +88,24 @@ class UPnPMappingDevice:
 
         @rtype: L{Deferred}
         """
-        mappings = {}
-        def eb(reason):
-            pass
-
-        @defer.inlineCallbacks
         def map(internalAddress):
-            pass
+            mappings = list(mappingGroup.mappings)
+            deferreds = list()
+            for port, protocol in mappings:
+                deferreds.append(
+                    self.proxy.callRemote(
+                        'AddPortMapping',
+                        NewRemoteHost="",
+                        NewExternalPort=port,
+                        NewProtocol=protocol.upper(),
+                        NewInternalPort=port,
+                        NewInternalClient=internalAddress,
+                        NewEnabled=1,
+                        NewPortMappingDescription="descr",
+                        NewLeaseDuration=0
+                        )
+                    )
+            return defer.DeferredList(deferreds)
 
         return discoverInternalAddress().addCallback(map)
 

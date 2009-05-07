@@ -70,8 +70,10 @@ class Proxy:
             'SOAPAction': '%s#%s' % (self.namespace.uri,
                                      method)
             }
-
+        
         envelope = self.buildEnvelope(methodElement)
+        postdata = tostring(envelope)
+        print "postdata", repr(postdata)
         return client.getPage(
-            self.url, postdata=tostring(envelope), method="POST",
+            self.url, postdata=postdata, method="POST",
             headers=headers).addCallback(self.parseResponse)

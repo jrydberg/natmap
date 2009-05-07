@@ -63,15 +63,15 @@ class MappingGroup:
     """
 
     def __init__(self):
-        self.mappings = {}
+        self.mappings = list()
 
-        def map(self, port, protocol):
-            """
-            """
-            self.mappings[port] = protocol
+    def map(self, port, protocol):
+        """
+        """
+        self.mappings.append((port, protocol))
 
-        def unmap(self, port, protocol):
-            del self.mapping[port]
+    def unmap(self, port, protocol):
+        self.mappings.remove((port, protocl))
             
 
 class MappingDeviceDiscoverer:
