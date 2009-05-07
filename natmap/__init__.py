@@ -22,28 +22,73 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+from natmap.inatmap import IDiscover, IMappingDeviceProvider
+from natmap import discover as discoverPlugins
+from natmap import devices as devicePlugins
+
 from twisted.plugin import getPlugins, IPlugin
 from twisted.internet import defer, reactor
 
 
-class ConnectedSocketDiscover:
+discoverMechanisms = getPlugins(IDiscover, discoverPlugins)
+deviceProviderMechanisms = getPlugins(IMappingDeviceProvider,
+                                      devicePlugins)
+
+class DiscoverError(Exception):
     """
-    Internal IP discover mechanism that uses the a connected UDP socket.
+    Internal address could not be discovered.
+    """
+
+    
+@defer.inlineCallbacks
+def discoverInternalAddress():
+    """
+    Discover internal (aka local) address.
+    
+    @return: a deferred that will be called with the internal address.
+    @rtype: L{Deferred}
+    """
+    for discover in discoverMechanisms:
+        try:
+            value = yield discover.discover()
+            defer.returnValue(value)
+        except Exception:
+            continue
+    raise DiscoverError()
+
+
+class MappingDeviceDiscoverer:
+    """
+    Functionality for discovering mapping devices.
     """
     
+    def __init__(self):
+        self.device = None
+
     @defer.inlineCallbacks
     def discover(self):
         """
-        Try to discover internal IP address.
+        Try to discover mapping device.
+        """
+        for provider in deviceProviderMechanisms:
+            try:
+                self.device = yield provider.search(10)
+                defer.returnValue(self.device)
+            except error.TimeoutError:
+                continue
+        raise DiscoverError()
+            
+    def get(self):
+        """
+        Return current mapping device or discover if not known at this
+        time.
 
         @rtype: L{Deferred}
         """
-        address = yield reactor.resolve('A.ROOT-SERVERS.NET')
-        # connect the socket to the returned IP address
-        
-        protocol = DatagramProtocol()
-        listeningPort = reactor.listenUDP(0, protocol)
-        protocol.transport.connect(address, 7)
-        internal = protocol.transport.getHost().host
-        listeningPort.stopListening()
-        defer.returnValue(internal)
+        if self.device is not None:
+            return deferred.succeed(self.device)
+        return self.discover()
+
+    
+mappingDeviceDiscoverer = MappingDeviceDiscoverer()
+discoverMappingDevice = mappingDeviceDiscoverer.get

@@ -25,12 +25,17 @@
 from zope.interface import Interface
 
 
-class ILocalDiscover(Interface):
+class IDiscover(Interface):
     """
     A device that can discover IP addresses.
     """
 
-    def discover(
+    def discover():
+        """
+        Try to internal address.
+
+        @rtype: L{Deferred}
+        """
 
 
 class IMappingGroup(Interface):
