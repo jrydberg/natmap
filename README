@@ -1,0 +1,14 @@
+NatMap - simple NAT traversal library
+
+Written by Johan Rydberg <johan.rydberg@gmail.com>
+
+Requires Twisted 2.5 and Python 2.5.
+
+
+
+Based on work by:
+
+Original library "Shtoom" (http://shtoom.divmod.org/) is
+        Copyright 2004 by Anthony Baxter <anthony@interlink.com.au>
+
+Raphael Slinckx <raphael@slinckx.net>
