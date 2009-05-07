@@ -46,7 +46,7 @@ class IMappingGroup(Interface):
     together to ease tear down.
     """
 
-    def map(port, protocol, lease):
+    def map(port, protocol):
         """
         Map internal port C{port}.
 

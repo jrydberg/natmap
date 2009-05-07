@@ -27,7 +27,7 @@ from natmap import discover as discoverPlugins
 from natmap import devices as devicePlugins
 
 from twisted.plugin import getPlugins, IPlugin
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, error
 
 
 discoverMechanisms = getPlugins(IDiscover, discoverPlugins)
@@ -56,6 +56,23 @@ def discoverInternalAddress():
             continue
     raise DiscoverError()
 
+
+class MappingGroup:
+    """
+    Mapping group.
+    """
+
+    def __init__(self):
+        self.mappings = {}
+
+        def map(self, port, protocol):
+            """
+            """
+            self.mappings[port] = protocol
+
+        def unmap(self, port, protocol):
+            del self.mapping[port]
+            
 
 class MappingDeviceDiscoverer:
     """

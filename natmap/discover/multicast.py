@@ -34,7 +34,7 @@ import socket
 
 
 def iterrandrange(n, start, stop):
-    return (random.randint(start, stop) for i in n)
+    return (random.randint(start, stop) for i in range(n))
 
 
 class MulticastDiscoverProtocol(DatagramProtocol):
