@@ -95,7 +95,7 @@ class UPnPMappingDevice:
                 deferreds.append(
                     self.proxy.callRemote(
                         'AddPortMapping',
-                        NewRemoteHost="",
+                        NewRemoteHost=" ",
                         NewExternalPort=port,
                         NewProtocol=protocol.upper(),
                         NewInternalPort=port,

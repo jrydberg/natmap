@@ -22,7 +22,7 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-from natmap.xmlbuilder import Namespace
+from natmap.xmlbuilder import Namespace, LocalNamespace
 
 from xml.etree.ElementTree import tostring, fromstring
 
@@ -42,8 +42,11 @@ class Proxy:
         """
         Build a SOAP envelope around C{element}.
         """
-        return ENV['Envelope'](ENV['Body'](element))
-
+        element = ENV['Envelope'](ENV['Body'](element))
+        element.set(ENV['encodingStyle'],
+                    "http://schemas.xmlsoap.org/soap/encoding/")
+        return element
+        
     def parseResponse(self, data):
         document = fromstring(data)
         try:
@@ -62,7 +65,7 @@ class Proxy:
         methodElement = self.namespace[method]()
         for name, value in kw.iteritems():
             methodElement.append(
-                self.namespace[name](str(value))
+                LocalNamespace[name](str(value))
                 )
 
         headers = {
@@ -72,7 +75,8 @@ class Proxy:
             }
         
         envelope = self.buildEnvelope(methodElement)
-        postdata = tostring(envelope)
+        postdata = '<?xml version="1.0"?>' + tostring(envelope)
+        print "url", self.url
         print "postdata", repr(postdata)
         return client.getPage(
             self.url, postdata=postdata, method="POST",
