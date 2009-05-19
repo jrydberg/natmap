@@ -25,83 +25,39 @@
 from zope.interface import Interface
 
 
-class IDiscover(Interface):
+class IMapper(Interface):
     """
-    A device that can discover IP addresses.
-    """
-
-    def discover():
-        """
-        Try to internal address.
-
-        @rtype: L{Deferred}
-        """
-
-
-class IMappingGroup(Interface):
-    """
-    Group of mappings.
-
-    Mappings that have the same characteristics can be grouped
-    together to ease tear down.
+    Functionality for mapping an internal address to a external
+    address and open up the NAT.
     """
 
-    def map(port, protocol):
+    def discoverExternalHost():
         """
-        Map internal port C{port}.
+        Discover the external IP address.
 
-        @type port: C{int}
-        @type protocol: C{str} that is C{'udp'} or C{'tcp'}
-        @rtype: C{Deferred}
-        """
 
-    def unmap(port, protocol):
-        """
-        Unmap internal port C{port}.
-
-        Fails with C{ValueError} if there is no such mapping.
-
-        @type port: C{int}
-        @type protocol: C{str} that is C{'udp'} or C{'tcp'}
-        @rtype: C{Deferred}
+        @return: A L{Deferred} that will be called with the external
+            IP address.
         """
 
-
-class IMappingDevice(Interface):
-    """
-    Mapping device is responsible for establishing mappings.
-    """
-
-    def createMappingGroup():
+    def map(address):
         """
-        Create and return a new L{IMappingGroup}.
-        """
+        Map internal address.
 
-    def mapGroup(group):
-        """
-        Map all mappings in the given group.
+        @param address: internal address.
+        @type address: L{twisted.internet.address.IPv4Address}
 
-        @rtype: L{Deferred}
+        @return: A L{Deferred} that will be called with the external
+            address of the mapped port.
         """
 
-    def unmapGroup(group):
+    def unmap(address):
         """
-        Unmap all mappings in the given group.
+        Unmap internal address.
 
-        @rtype: L{Deferred}
-        """
+        @param address: internal address.
+        @type address: L{twisted.internet.address.IPv4Address}
 
-
-class IMappingDeviceProvider(Interface):
-    """
-    Provider of C{IMappingDevice}
-    """
-
-    def search(timeout):
-        """
-        Search for mapping device.  Stop if no device was found in
-        C{timeout} seconds.
-        
-        @return: a deferred called with a L{IMappingDevice}
-        @rtype: L{Deferred}
+        @return: A L{Deferred} that will be called when the mapping
+            has been revoked.
         """

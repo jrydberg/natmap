@@ -22,19 +22,40 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-from zope.interface import implements
-from natmap.inatmap import IDiscover
+# Functionality for discovering the "internal" address (it may turn
+# out to be a "real" address).
 
-from twisted.plugin import IPlugin
 from twisted.internet import defer, reactor
 from twisted.internet.protocol import DatagramProtocol
 import random
 import socket
 
 
-
 def iterrandrange(n, start, stop):
     return (random.randint(start, stop) for i in range(n))
+
+
+class DiscoverError(Exception):
+    """
+    Internal address could not be discovered.
+    """
+
+
+def connectedSocketDiscover():
+    """
+    Try to discover the internal address by using a connected UDP
+    socket.
+
+    @return: a L{Deferred} called with the internal address.
+    """
+    def cb(address):
+        protocol = DatagramProtocol()
+        listeningPort = reactor.listenUDP(0, protocol)
+        protocol.transport.connect(address, 7)
+        internal = protocol.transport.getHost().host
+        listeningPort.stopListening()
+        return internal
+    return reactor.resolve('A.ROOT-SERVERS.NET').addCallback(cb)
 
 
 class MulticastDiscoverProtocol(DatagramProtocol):
@@ -74,19 +95,29 @@ class MulticastDiscoverProtocol(DatagramProtocol):
             deferred.errback(error.TimeoutError())
 
 
-class LocalNetworkMulticastDiscover(DatagramProtocol):
+def localNetworkMulticastDiscover():
     """
-    Mechanism for discovering the internal address by probing for a
-    UPnP device.
+    Try to discover the internal address by sending out a multicast
+    message and inspect the response.
+    
+    @return: a L{Deferred} called with the internal address.
     """
-    implements(IPlugin, IDiscover)
-
-    def discover(self):
-        """
-        Try to discover internal IP address.
-        """
-        protocol = MulticastDiscoverProtocol()
-        return protocol.discover()
+    return MulticastDiscoverProtocol().discover()
 
 
-discover = LocalNetworkMulticastDiscover()
+@defer.inlineCallbacks
+def discoverInternalHost():
+    """
+    Discover internal (aka local) IP address.
+    
+    @return: a deferred that will be called with the internal address.
+    @rtype: L{Deferred}
+    """
+    for discover in (connectedSocketDiscover, localNetworkMulticastDiscover):
+        try:
+            value = yield discover()
+            defer.returnValue(value)
+        except Exception:
+            print "CAUGHT"
+            continue
+    raise DiscoverError()

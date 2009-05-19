@@ -29,18 +29,20 @@ from zope.interface import implements
 from xml.etree.ElementTree import fromstring
 
 from twisted.internet.protocol import DatagramProtocol
+from twisted.internet.address import IPv4Address
 from twisted.plugin import IPlugin
 from twisted.internet import reactor, defer, error
 from twisted.web import client
 
-from natmap import DiscoverError, MappingGroup, discoverInternalAddress
-from natmap.inatmap import IMappingDevice, IMappingDeviceProvider
-from natmap.soap import Proxy
+from natmap.inatmap import IMapper
+from natmap.soap import Proxy, SOAPFault
 from natmap.xmlbuilder import Namespace
+from natmap.internal import discoverInternalHost
 
 import random
 import socket
 import urlparse
+import itertools
 
 
 # UPNP multicast address, port and request string
@@ -63,11 +65,13 @@ class BadResponseError(Exception):
     pass
 
 
-class UPnPMappingDevice:
+class UPnPMapper(object):
     """
+    Implementor of L{IMapper} for the UPnP IGD.
 
     @ivar serviceURL: the URL where we do requests.
     """
+    implements(IMapper)
 
     def __init__(self, baseURL, controlURL):
         self.serviceURL = urlparse.urljoin(baseURL, controlURL)
@@ -76,47 +80,93 @@ class UPnPMappingDevice:
             )
         self.proxy = Proxy(self.serviceURL, namespace)
 
-    def createMappingGroup(self):
+    @defer.inlineCallbacks
+    def getAllocatedExternalPorts(self):
         """
-        See L{IMappingDevice.createMappingGroup}.
-        """
-        return MappingGroup()
-
-    def mapGroup(self, mappingGroup):
-        """
-        See L{IMappingDevice.mapGroup}.
+        Return a deferred called with a iterable for all already
+        allocated ports.
 
         @rtype: L{Deferred}
         """
-        def map(internalAddress):
-            mappings = list(mappingGroup.mappings)
-            deferreds = list()
-            for port, protocol in mappings:
-                deferreds.append(
-                    self.proxy.callRemote(
-                        'AddPortMapping',
-                        NewRemoteHost=" ",
-                        NewExternalPort=port,
-                        NewProtocol=protocol.upper(),
-                        NewInternalPort=port,
-                        NewInternalClient=internalAddress,
-                        NewEnabled=1,
-                        NewPortMappingDescription="descr",
-                        NewLeaseDuration=0
-                        )
+        ports = list()
+        for index in itertools.count():
+            try:
+                spec = yield self.proxy.callRemote(
+                    'GetGenericPortMappingEntry', NewPortMappingIndex=index
                     )
-            return defer.DeferredList(deferreds)
+                ports.append(
+                    (spec['NewProtocol'], int(spec['NewExternalPort']))
+                    )
+            except SOAPFault:
+                # FIXME: check error
+                break
+        defer.returnValue(ports)
 
-        return discoverInternalAddress().addCallback(map)
-
-    def discoverExternalAddress(self):
+    def allocateExternalPort(self, type, internalPort):
         """
-        See L{IMappingDevice.discoverExternalAddress}.
+        Allocate an external port for the given internal port.
+        """
+        def cb(ports):
+            for port in iterrandrange(20, 1025, 65536):
+                if not (type, port) in ports:
+                    return port
+            return internalPort
+        return self.getAllocatedExternalPorts().addCallback(cb)
+
+    def _buildExternalAddress(self, addressType, externalPort):
+        def cb(externalHost):
+            return IPv4Address(addressType, externalHost, externalPort)
+        return self.discoverExternalHost().addCallback(cb)
+
+    def _addPortMapping(self, internalHost, type, internalPort, externalPort):
+        """
+        Add a port mapping.
+
+        @param internalHost: IP address where mapping should be directed.
+        @param type: C{UDP | TCP}
+        @param internalPort: port within the NAT
+        @param externalPort: port outside the NAT
+        """
+        if type not in ('UDP', 'TCP'):
+            return defer.fail(ValueError("bad protocol"))
+
+        description = "%s:%d (%s)" % (internalHost, internalPort, type)
+        return self.proxy.callRemote(
+            'AddPortMapping', NewRemoteHost=" ",
+            NewExternalPort=externalPort, NewProtocol=type,
+            NewInternalPort=internalPort, NewInternalClient=internalHost,
+            NewEnabled=1, NewPortMappingDescription=description,
+            NewLeaseDuration=0
+            )
+
+    def map(self, internalAddress):
+        """
+        See L{IMapper.map}.
+
+        @rtype: L{Deferred}
+        """
+        def mapped(result, externalPort):
+            return self._buildExternalAddress(
+                internalAddress.type, externalPort
+                )
+        def allocated(externalPort):
+            return self._addPortMapping(
+                internalAddress.host, internalAddress.type,
+                internalAddress.port, externalPort
+                ).addCallback(mapped, externalPort)
+        return self.allocateExternalPort(internalAddress.type,
+                                         internalAddress.port).addCallback(
+            allocated)
+
+
+    def discoverExternalHost(self):
+        """
+        See L{IMapper.discoverExternalHost}.
         """
         def cb(result):
             return result['NewExternalIPAddress']
-        d = self.proxy.callRemote('GetExternalIPAddress')
-        return d.addCallback(cb)
+
+        return self.proxy.callRemote('GetExternalIPAddress').addCallback(cb)
 
 
 class DiscoverProtocol(DatagramProtocol):
@@ -173,8 +223,7 @@ class DiscoverProtocol(DatagramProtocol):
         self.baseURL = document.findtext(self.ns + 'URLBase')
 
         if self.controlURL is not None:
-            self.callback(UPnPMappingDevice(self.baseURL,
-                                            self.controlURL))
+            self.callback(UPnPMapper(self.baseURL, self.controlURL))
 
         
     def datagramReceived(self, data, address):
@@ -251,16 +300,14 @@ class DiscoverProtocol(DatagramProtocol):
         self.errback(error.TimeoutError())
         
 
-class UPnPMappingDeviceProvider:
+def discoverMapper(timeout=5):
     """
-    """
-    implements(IPlugin, IMappingDeviceProvider)
-    
-    def search(self, timeout):
-        protocol = DiscoverProtocol()
-        return protocol.search(timeout)
+    Discover UPnP mapper.
 
-provider = UPnPMappingDeviceProvider()
+    @return: a deferred called with a IMapper provider.
+    """
+    return DiscoverProtocol().search(timeout)
+
 
     
         

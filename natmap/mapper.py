@@ -22,12 +22,14 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+from natmap.inatmap import IMapper
+
 from natmap.util import DeferredSingleton, InstanceFactory
 from natmap.upnp import discoverMapper as discoverUPnPMapper
-from natmap.mapper import MapperReactor 
 from natmap.internal import discoverInternalHost
 
-from twisted.internet import defer
+from twisted.internet import defer, reactor, error
+from twisted.internet.address import IPv4Address
 
 
 class MapperInstanceFactory:
@@ -46,10 +48,52 @@ class MapperInstanceFactory:
         raise RuntimeError("no mapper available")
 
 
-mapperReactor = MapperReactor(MapperInstanceFactory())
-mapAddress = mapperReactor.mapAddress
-mapListeningPort = mapperReactor.mapListeningPort
-discoverExternalHost = mapperReactor.discoverExternalHost
+class MapperReactor:
 
-__all__ = ['mapAddress', 'mapListeningPort', 'discoverInternalHost',
-           'discoverExternalHost']
+    def __init__(self, factory):
+        self.singleton = DeferredSingleton(factory)
+    def ensureInternalAddress(self, address):
+        """
+        Ensure that address is a valid internal address and if not
+        turn it into one.
+        
+        @rtype: L{Deferred}
+        """
+        if address.host in ('0.0.0.0', '127.0.0.1', ''):
+            def cb(internalHost, address=address):
+                return IPv4Address(
+                    address.type, internalHost, address.port
+                    )
+            return discoverInternalHost().addCallback(cb)
+
+        return defer.succeed(address)
+
+    def discoverExternalHost(self):
+        """
+        """
+        def cb(mapper):
+            return mapper.discoverExternalHost()
+        return self.singleton.get().addCallback(cb)
+
+    def mapAddress(self, address):
+        """
+        Map internal address C{address} to an external address.
+
+        @type address: L{IPv4Address}
+        @return: a deferred called with the external address.
+        """
+        def cb(mapper):
+            return mapper.map(address)
+        return self.singleton.get().addCallback(cb)
+
+    def mapListeningPort(self, listeningPort):
+        """
+        Map listening port.
+
+        @type listeningPort: L{IListeningPort} provider.
+        """
+        def cb(address):
+            return self.mapAddress(address)
+        return self.ensureInternalAddress(
+            listeningPort.getHost()).addCallback(cb)
+    

@@ -26,10 +26,22 @@ from natmap.xmlbuilder import Namespace, LocalNamespace
 
 from xml.etree.ElementTree import tostring, fromstring
 
+from twisted.python import failure
 from twisted.web import client
 
 
 ENV = Namespace("http://schemas.xmlsoap.org/soap/envelope/", "s")
+
+
+class SOAPFault(Exception):
+    """
+    Representation of a fault raised by the remote host.
+
+    """
+
+    def __init__(self, faultString, faultDetail):
+        self.faultString = faultString
+        self.faultDetail = faultDetail
 
 
 class Proxy:
@@ -57,6 +69,23 @@ class Proxy:
         for childElement in responseElement:
             result[childElement.tag] = childElement.text
         return result
+
+    def parseFault(self, reason):
+        """
+        Parse fault from remote device.
+        """
+        try:
+            document = fromstring(reason.value.response)
+        except Exception, e:
+            # Some devices give bad faults.
+            # Dlink DIR-665 gives a faulty prefix.
+            return failure.Failure(SOAPFault('', None))
+        
+        faultElement = document.find('.//' + ENV['Fault'])
+        return failure.Failure(
+            SOAPFault(faultElement.findtext(ENV['faultstring']),
+                      faultElement.find(ENV['detail']))
+            )
     
     def callRemote(self, method, **kw):
         """
@@ -76,8 +105,11 @@ class Proxy:
         
         envelope = self.buildEnvelope(methodElement)
         postdata = '<?xml version="1.0"?>' + tostring(envelope)
-        print "url", self.url
-        print "postdata", repr(postdata)
-        return client.getPage(
-            self.url, postdata=postdata, method="POST",
-            headers=headers).addCallback(self.parseResponse)
+        #print "url", self.url
+        #print "postdata", repr(postdata)
+        return client.getPage(self.url,
+                              postdata=postdata,
+                              method="POST",
+                              headers=headers
+                              ).addCallbacks(self.parseResponse,
+                                             self.parseFault)
