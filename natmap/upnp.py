@@ -65,6 +65,28 @@ class BadResponseError(Exception):
     pass
 
 
+class Mapping:
+    """
+    Object representing a mapping between an internal address and an
+    external address.
+
+    @ivar internalHost: A string containing the internal IP address.
+    @ivar internalPort: An integer representing the internal port
+        number.
+    @ivar externalPort: An integer representing the external port
+        number.
+    @ivar type: A string representing the type of transport, either
+        'TCP' or 'UDP'
+    """
+
+    def __init__(self, type, internalHost, internalPort,
+                 externalPort):
+        self.type = type
+        self.internalHost = internalHost
+        self.internalPort = internalPort
+        self.externalPort = externalPort
+
+
 class UPnPMapper(object):
     """
     Implementor of L{IMapper} for the UPnP IGD.
@@ -73,47 +95,52 @@ class UPnPMapper(object):
     """
     implements(IMapper)
 
-    def __init__(self, baseURL, controlURL):
-        self.serviceURL = urlparse.urljoin(baseURL, controlURL)
-        namespace = Namespace(
-            "urn:schemas-upnp-org:service:WANIPConnection:1", "u"
-            )
-        self.proxy = Proxy(self.serviceURL, namespace)
+    def __init__(self, proxy):
+        self.proxy = proxy
 
     @defer.inlineCallbacks
-    def getAllocatedExternalPorts(self):
+    def getMappings(self):
         """
-        Return a deferred called with a iterable for all already
-        allocated ports.
-
-        @rtype: L{Deferred}
+        Return a C{Deferred} called with a sequence of L{Mapping}
+        objects that represent all currently known mappings in the
+        mapping device.
         """
-        ports = list()
+        mappings = list()
         for index in itertools.count():
             try:
-                spec = yield self.proxy.callRemote(
-                    'GetGenericPortMappingEntry', NewPortMappingIndex=index
-                    )
-                ports.append(
-                    (spec['NewProtocol'], int(spec['NewExternalPort']))
-                    )
+                entry = yield self.proxy.callRemote(
+                    'GetGenericPortMappingEntry', NewPortMappingIndex=index)
+                mapping = Mapping(entry['NewProtocol'],
+                                  entry['NewInternalClient'],
+                                  entry['NewInternalPort'],
+                                  entry['NewExternalPort'])
+                mappings.append(mapping)
             except SOAPFault:
-                # FIXME: check error
                 break
-        defer.returnValue(ports)
+        defer.returnValue(mappings)
 
     def allocateExternalPort(self, type, internalPort):
         """
         Allocate an external port for the given internal port.
+
+        @return: a deferred called with the allocated external port.
         """
-        def cb(ports):
+        def cb(mappings):
+            external_ports = ((mapping.type, mapping.externalPort)
+                              for mapping in mappings)
             for port in iterrandrange(20, 1025, 65536):
-                if not (type, port) in ports:
+                if not (type, port) in external_ports:
                     return port
             return internalPort
-        return self.getAllocatedExternalPorts().addCallback(cb)
+        return self.getMappings().addCallback(cb)
 
     def _buildExternalAddress(self, addressType, externalPort):
+        """
+        Based on given parameters build a L{IPv4Address} object that
+        represent the external endpoint.
+
+        @return: a deferred called with the external L{IPv4Address} object
+        """
         def cb(externalHost):
             return IPv4Address(addressType, externalHost, externalPort)
         return self.discoverExternalHost().addCallback(cb)
@@ -149,11 +176,13 @@ class UPnPMapper(object):
             return self._buildExternalAddress(
                 internalAddress.type, externalPort
                 )
+
         def allocated(externalPort):
             return self._addPortMapping(
                 internalAddress.host, internalAddress.type,
                 internalAddress.port, externalPort
                 ).addCallback(mapped, externalPort)
+
         return self.allocateExternalPort(internalAddress.type,
                                          internalAddress.port).addCallback(
             allocated)
@@ -223,8 +252,11 @@ class DiscoverProtocol(DatagramProtocol):
         self.baseURL = document.findtext(self.ns + 'URLBase')
 
         if self.controlURL is not None:
-            self.callback(UPnPMapper(self.baseURL, self.controlURL))
-
+            serviceURL = urlparse.urljoin(self.baseURL, self.controlURL)
+            namespace = Namespace(
+                "urn:schemas-upnp-org:service:WANIPConnection:1", "u"
+                )
+            self.callback(UPnPMapper(Proxy(serviceURL, namespace)))
         
     def datagramReceived(self, data, address):
         """
@@ -237,7 +269,11 @@ class DiscoverProtocol(DatagramProtocol):
             timeout, self.timeout = self.timeout, None
             timeout.cancel()
         
-        code, headers, data = self.parseResponse(data)
+        try:
+            code, headers, data = self.parseResponse(data)
+        except BadResponseError:
+            return
+
         location = headers.get('location', None)
         if location is None:
             self.errback(DiscoverError())
