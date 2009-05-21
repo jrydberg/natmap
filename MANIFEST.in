@@ -1,0 +1,2 @@
+include README mapped-service.tac MANIFEST.in setup.py
+recursive-include natmap *.py
