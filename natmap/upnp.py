@@ -34,8 +34,8 @@ from twisted.plugin import IPlugin
 from twisted.internet import reactor, defer, error
 from twisted.web import client
 
-from natmap.inatmap import IMapper
-from natmap.soap import Proxy, SOAPFault
+from natmap.inatmap import IMapper, NoSuchMappingError
+from natmap.soap import Proxy, SOAPFault, getPage
 from natmap.xmlbuilder import Namespace
 from natmap.internal import discoverInternalHost
 
@@ -63,6 +63,8 @@ def iterrandrange(n, start, stop):
 
 class BadResponseError(Exception):
     pass
+
+
 
 
 class Mapping:
@@ -112,8 +114,8 @@ class UPnPMapper(object):
                     'GetGenericPortMappingEntry', NewPortMappingIndex=index)
                 mapping = Mapping(entry['NewProtocol'],
                                   entry['NewInternalClient'],
-                                  entry['NewInternalPort'],
-                                  entry['NewExternalPort'])
+                                  int(entry['NewInternalPort']),
+                                  int(entry['NewExternalPort']))
                 mappings.append(mapping)
             except SOAPFault:
                 break
@@ -166,6 +168,14 @@ class UPnPMapper(object):
             NewLeaseDuration=0
             )
 
+    def _deletePortMapping(self, internalHost, type, internalPort, externalPort):
+        """
+        Delete an existing port mapping.
+        """
+        return self.proxy.callRemote(
+            'DeletePortMapping', NewRemoteHost=" ",
+            NewExternalPort=externalPort, NewProtocol=type)
+
     def map(self, internalAddress):
         """
         See L{IMapper.map}.
@@ -186,6 +196,25 @@ class UPnPMapper(object):
         return self.allocateExternalPort(internalAddress.type,
                                          internalAddress.port).addCallback(
             allocated)
+
+    def cbUnmap(self, mappings, internalAddress):
+        for mapping in mappings:
+            if (mapping.type == internalAddress.type
+                and mapping.internalHost == internalAddress.host
+                and mapping.internalPort == internalAddress.port):
+                return self._deletePortMapping(
+                    internalAddress.host, internalAddress.type,
+                    internalAddress.port, mapping.externalPort
+                    )
+        return defer.fail(NonSuchMappingError())
+
+    def unmap(self, internalAddress):
+        """
+        See L{IMapper.unmap}
+
+        @rtype: L{Deferred}
+        """
+        return self.getMappings().addCallback(self.cbUnmap, internalAddress)
 
 
     def discoverExternalHost(self):
@@ -278,8 +307,7 @@ class DiscoverProtocol(DatagramProtocol):
         if location is None:
             self.errback(DiscoverError())
 
-        client.getPage(location).addCallback(
-            self.cbDiscover).addErrback(self.errback)
+        getPage(location).addCallback(self.cbDiscover).addErrback(self.errback)
         
     def parseResponse(self, data):
         """

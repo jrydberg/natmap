@@ -86,6 +86,16 @@ class MapperReactor:
             return mapper.map(address)
         return self.singleton.get().addCallback(cb)
 
+    def unmapAddress(self, address):
+        """
+        Unmap internal address C{address}.
+
+        @type address: L{IPv4Address}
+        """
+        def cb(mapper):
+            return mapper.unmap(address)
+        return self.singleton.get().addCallback(cb)
+
     def mapListeningPort(self, listeningPort):
         """
         Map listening port.
@@ -97,3 +107,13 @@ class MapperReactor:
         return self.ensureInternalAddress(
             listeningPort.getHost()).addCallback(cb)
     
+    def unmapListeningPort(self, listeningPort):
+        """
+        Unmap listening port.
+
+        @type listeningPort: L{IListeningPort} provider.
+        """
+        def cb(address):
+            return self.unmapAddress(address)
+        return self.ensureInternalAddress(
+            listeningPort.getHost()).addCallback(cb)

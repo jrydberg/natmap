@@ -49,7 +49,8 @@ class MapperInstanceFactory:
 mapperReactor = MapperReactor(MapperInstanceFactory())
 mapAddress = mapperReactor.mapAddress
 mapListeningPort = mapperReactor.mapListeningPort
+unmapListeningPort = mapperReactor.unmapListeningPort
 discoverExternalHost = mapperReactor.discoverExternalHost
 
-__all__ = ['mapAddress', 'mapListeningPort', 'discoverInternalHost',
-           'discoverExternalHost']
+__all__ = ['mapAddress', 'mapListeningPort', 'unmapListeningPort',
+           'discoverInternalHost', 'discoverExternalHost']

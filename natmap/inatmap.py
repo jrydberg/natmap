@@ -25,6 +25,12 @@
 from zope.interface import Interface
 
 
+class NoSuchMappingError(Exception):
+    """
+    Mapping does not exists.
+    """
+
+
 class IMapper(Interface):
     """
     Functionality for mapping an internal address to a external
