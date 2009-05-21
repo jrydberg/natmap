@@ -56,6 +56,15 @@ class TestProxy:
         self.mappings.append(mapping)
         return defer.succeed(None)
 
+    def DeletePortMapping(self, NewRemoteHost='', NewExternalPort='',
+                          NewProtocol=''):
+        for i, mapping in enumerate(self.mappings):
+            if (mapping['NewExternalPort'] == str(NewExternalPort)
+                and mapping['NewProtocol'] == NewProtocol):
+                del self.mappings[i]
+                return defer.succeed(None)
+        return defer.fail(soap.SOAPFault(None, None))
+
             
 class MapperTestCase(unittest.TestCase):
 
@@ -91,4 +100,20 @@ class MapperTestCase(unittest.TestCase):
         """
         d = self.mapper.map(address.IPv4Address('TCP', '192.168.1.1', 1322))
         return d.addCallbacks(self.cbMapAddress, self.ebMapAddress)
+
+    def cbUnmapAddress(self, result):
+        pass
+
+    def ebUnmapAddress(self, reason):
+        print reason
+        self.assertTrue(False, "error raised")
     
+    def test_unmapAddress(self):
+        """
+        Verify that a L{IPv4Address} can be unmapped.
+        """
+        self.proxy.mappings.append(
+            {'NewProtocol': 'TCP', 'NewInternalPort':'1232', 'NewExternalPort':'43123',
+             'NewInternalClient':'192.168.1.1'})
+        d = self.mapper.unmap(address.IPv4Address('TCP', '192.168.1.1', 1232))
+        return d.addCallbacks(self.cbUnmapAddress, self.ebUnmapAddress)
